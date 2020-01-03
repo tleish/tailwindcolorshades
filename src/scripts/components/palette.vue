@@ -1,4 +1,9 @@
 <script>
+import convert from 'color-convert'
+
+const CMY_HUES = [180, 300, 60];
+const RGB_HUES = [360, 240, 120, 0];
+
 export default {
   name: "palette",
 
@@ -31,29 +36,29 @@ export default {
 
       tintsPerVersion: {
         1: {
-          100: 0.9,
-          200: 0.75,
-          300: 0.6,
-          400: 0.3
+          100: 0.8,
+          200: 0.6,
+          300: 0.4,
+          400: 0.2
         },
         0: {
-          lightest: 0.9,
-          lighter: 0.6,
-          light: 0.3
+          lightest: 0.8,
+          lighter: 0.5,
+          light: 0.2
         }
       },
 
       shadesPerVersion: {
         1: {
-          600: 0.9,
-          700: 0.6,
-          800: 0.45,
-          900: 0.3
+          600: 0.2,
+          700: 0.4,
+          800: 0.6,
+          900: 0.8
         },
         0: {
-          dark: 0.9,
-          darker: 0.6,
-          darkest: 0.3
+          dark: 0.2,
+          darker: 0.5,
+          darkest: 0.8
         }
       },
 
@@ -72,50 +77,53 @@ export default {
       this.$emit("remove");
     },
 
-    hexPart: c => `0${c.toString(16)}`.slice(-2),
-
-    hexToRgb(hex) {
-      const color = `#${hex}`,
-        components = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
-
-      if (!components) {
-        return null;
-      }
-
-      return {
-        r: parseInt(components[1], 16),
-        g: parseInt(components[2], 16),
-        b: parseInt(components[3], 16)
-      };
-    },
-
-    rgbToHex(r, g, b) {
-      return `#${this.hexPart(r)}${this.hexPart(g)}${this.hexPart(b)}`;
+    hueShift(hues, hue, intensity) {
+      const closestHue = hues.sort((a, b) => (Math.abs(a - hue) - Math.abs(b - hue)))[0],
+            hueShift = closestHue - hue;
+      return Math.round(intensity * hueShift * 0.25)
     },
 
     tint(hex, intensity) {
-      const color = this.hexToRgb(hex),
-        r = Math.round(color.r + (255 - color.r) * intensity),
-        g = Math.round(color.g + (255 - color.g) * intensity),
-        b = Math.round(color.b + (255 - color.b) * intensity);
-
-      return this.rgbToHex(r, g, b);
+      const [h,s,v] = convert.hex.hsv(hex),
+        hNew = h + this.hueShift(CMY_HUES, h, intensity),
+        sNew = s - Math.round(s * intensity),
+        vNew = v + Math.round((100 - v) * intensity)
+      ;
+      return `#${convert.hsv.hex(hNew, sNew, vNew)}`;
     },
 
     shade(hex, intensity) {
-      const color = this.hexToRgb(hex),
-        r = Math.round(color.r * intensity),
-        g = Math.round(color.g * intensity),
-        b = Math.round(color.b * intensity);
-
-      return this.rgbToHex(r, g, b);
+      const [h,s,v] = convert.hex.hsv(hex),
+        hNew = h + this.hueShift(RGB_HUES, h, intensity),
+        sNew = s + Math.round((100 - s) * intensity),
+        vNew = v - Math.round(v * intensity)
+      ;
+      return `#${convert.hsv.hex(hNew, sNew, vNew)}`;
     },
 
     getTextColor(color) {
-      const { r, g, b } = this.hexToRgb(color.replace(/#/gi, "")),
+      const [ r, g, b ] = convert.hex.rgb(color),
         luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
       return luma < 120 ? "#FFFFFF" : "#333333";
+    },
+
+    generateColors(colors, colorAdjust){
+      const isVersion1 = this.version === 1,
+        name = this.colorName.replace(/\s/gi, "-");
+
+      for (const key in colors) {
+        const color = colors[key],
+          adjustedColor = colorAdjust(this.color, color),
+          label = isVersion1 ? key : `'${name}-${key}'`;
+
+        this.colors.push({
+          name: `${name}-${key}`,
+          label,
+          background: adjustedColor,
+          text: this.getTextColor(adjustedColor)
+        });
+      }
     },
 
     generate() {
@@ -126,18 +134,7 @@ export default {
         name = this.colorName.replace(/\s/gi, "-");
 
       // Tints
-      for (const key in this.tints) {
-        const tint = this.tints[key],
-          tinted = this.tint(this.color, tint),
-          label = isVersion1 ? key : `'${name}-${key}'`;
-
-        this.colors.push({
-          name: `${name}-${key}`,
-          label,
-          background: tinted,
-          text: this.getTextColor(tinted)
-        });
-      }
+      this.generateColors(this.tints, this.tint)
 
       const label = isVersion1 ? "500" : `'${name}'`;
 
@@ -150,18 +147,7 @@ export default {
       });
 
       // Shades
-      for (const key in this.shades) {
-        const shade = this.shades[key],
-          shaded = this.shade(this.color, shade),
-          label = isVersion1 ? key : `'${name}-${key}'`;
-
-        this.colors.push({
-          name: `${name}-${key}`,
-          label,
-          background: shaded,
-          text: this.getTextColor(shaded)
-        });
-      }
+      this.generateColors(this.shades, this.shade)
 
       this.$track("colors", "generated", `${this.name}:${this.color}`);
 
